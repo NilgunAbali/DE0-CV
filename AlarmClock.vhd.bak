@@ -1,0 +1,220 @@
+--LIBRARY ieee;
+--USE IEEE.STD_LOGIC_1164.all;
+--USE IEEE.STD_LOGIC_ARITH.all;
+--USE IEEE.STD_LOGIC_UNSIGNED.all;
+--use ieee.numeric_std.all;
+
+LIBRARY ieee;
+USE ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+ENTITY BCDCOUNT IS
+	port(
+	KEY0, CLK_50 :IN 	STD_LOGIC;
+	LEDR9 :OUT STD_LOGIC:= '1';
+	MSDsec, LSDsec, MSDmin, LSDmin, MSDhr, LSDhr :OUT STD_LOGIC_VECTOR (0 to 6) );
+END BCDCOUNT;
+
+ARCHITECTURE a of BCDCOUNT is
+	SIGNAL ClkFlagsec, ClkFlagmin, ClkFlaghr:	STD_LOGIC;
+	SIGNAL Internal_Countsec, Internal_Countmin, Internal_Counthr : STD_LOGIC_VECTOR(100 downto 0);
+	SIGNAL HighDigitsec, LowDigitsec, HighDigitmin, LowDigitmin, HighDigithr, LowDigithr: STD_LOGIC_VECTOR(3 downto 0);
+	SIGNAL MSD_7SEGsec, LSD_7SEGsec, MSD_7SEGmin, LSD_7SEGmin, MSD_7SEGhr, LSD_7SEGhr: STD_LOGIC_VECTOR(0 to 6);
+	SIGNAL AMPM: STD_LOGIC := '1';
+	SIGNAL reset_sync : STD_LOGIC := '0'; -- Synchronized reset signal
+BEGIN
+
+	LSDsec<=LSD_7SEGsec;
+	MSDsec<=MSD_7SEGsec;
+	LSDmin<=LSD_7SEGmin;
+	MSDmin<=MSD_7SEGmin;
+	LSDhr<=LSD_7SEGhr;
+	MSDhr<=MSD_7SEGhr;
+   LEDR9<= AMPM;
+	
+    PROCESS (CLK_50, ClkFlagsec, ClkFlagmin, ClkFlaghr, Internal_Countsec, Internal_Countmin, Internal_Counthr )
+    BEGIN
+        IF RISING_EDGE(CLK_50) THEN
+            reset_sync <= KEY0;
+            
+            IF reset_sync = '1' THEN
+                -- Reset all counters and flags
+                Internal_Countsec <= (OTHERS => '0');
+                Internal_Countmin <= (OTHERS => '0');
+                Internal_Counthr <= (OTHERS => '0');
+                ClkFlagsec <= '0';
+                ClkFlagmin <= '0';
+                ClkFlaghr <= '0';
+            ELSE
+                -- Increment second counter
+                IF to_integer(unsigned(Internal_Countsec)) < 25000000 THEN
+                    Internal_Countsec <= std_logic_vector(unsigned(Internal_Countsec) + 1);
+                ELSE
+                    Internal_Countsec <= (OTHERS => '0');
+                    ClkFlagsec <= NOT ClkFlagsec;
+                END IF;
+
+                -- Increment minute counter
+                IF to_integer(unsigned(Internal_Countmin)) < 1500000000 THEN
+                    Internal_Countmin <= std_logic_vector(unsigned(Internal_Countmin) + 1);
+                ELSE
+                    Internal_Countmin <= (OTHERS => '0');
+                    ClkFlagmin <= NOT ClkFlagmin;
+                END IF;
+
+                -- Increment hour counter
+                IF to_integer(unsigned(Internal_Counthr)) < 90000000000 THEN
+                    Internal_Counthr <= std_logic_vector(unsigned(Internal_Counthr) + 1);
+                ELSE
+                    Internal_Counthr <= (OTHERS => '0');
+                    ClkFlaghr <= NOT ClkFlaghr;
+                END IF;
+            END IF;
+        END IF;
+    END PROCESS;
+
+    -- Process for updating digits
+   PROCESS (ClkFlagsec, ClkFlagmin, ClkFlaghr, HighDigitsec, LowDigitsec, HighDigitmin, LowDigitmin, HighDigithr, LowDigithr)
+
+    BEGIN
+        --IF RISING_EDGE(ClkFlagsec) THEN
+		  IF (ClkFlagsec' event and ClkFlagsec = '1') THEN
+            -- Update second digits
+            IF LowDigitsec = "1001" THEN
+                LowDigitsec <= "0000";
+                IF HighDigitsec = "0101" THEN
+                    HighDigitsec <= "0000";
+                ELSE
+                    HighDigitsec <= std_logic_vector(unsigned(HighDigitsec) + 1);
+                END IF;
+            ELSE
+                LowDigitsec <= std_logic_vector(unsigned(LowDigitsec) + 1);
+            END IF;
+        END IF;
+
+        --IF RISING_EDGE(ClkFlagmin) THEN
+		  IF (ClkFlagmin' event and ClkFlagmin = '1') THEN
+            -- Update minute digits
+            IF LowDigitmin = "1001" THEN
+                LowDigitmin <= "0000";
+                IF HighDigitmin = "0101" THEN
+                    HighDigitmin <= "0000";
+                ELSE
+                    HighDigitmin <= std_logic_vector(unsigned(HighDigitmin) + 1);
+                END IF;
+            ELSE
+                LowDigitmin <= std_logic_vector(unsigned(LowDigitmin) + 1);
+            END IF;
+        END IF;
+
+        --IF RISING_EDGE(ClkFlaghr) THEN
+		   IF (ClkFlaghr' event and ClkFlaghr = '1') THEN
+            -- Update hour digits
+            IF LowDigithr = "0010" THEN
+                IF HighDigithr = "0001" THEN
+                    HighDigithr <= "0000";
+						  LowDigithr <= "0000";
+						  AMPM <= NOT AMPM;
+                END IF;
+			   elsif LowDigithr = "1001" then
+					  HighDigithr <= std_logic_vector(unsigned(HighDigithr) + 1);
+            ELSE
+                LowDigithr <= std_logic_vector(unsigned(LowDigithr) + 1);
+            END IF;
+        END IF;
+    END PROCESS;
+
+
+	PROCESS(HighDigitsec, LowDigitsec, HighDigitmin, LowDigitmin, HighDigithr, LowDigithr)
+	
+	BEGIN
+		case LowDigitsec is
+			when "0000" => LSD_7SEGsec <= "0000001";
+			when "0001" => LSD_7SEGsec  <= "1001111";
+			when "0010" => LSD_7SEGsec  <= "0010010";
+			when "0011" => LSD_7SEGsec  <= "0000110";
+			when "0100" => LSD_7SEGsec  <= "1001100";
+			when "0101" => LSD_7SEGsec <= "0100100";
+			when "0110" => LSD_7SEGsec  <= "0100000";
+			when "0111" => LSD_7SEGsec  <= "0001111";
+			when "1000" => LSD_7SEGsec  <= "0000000";
+			when "1001" => LSD_7SEGsec  <= "0000100";
+			when others => LSD_7SEGsec  <= "1111111";
+		end case;
+
+		case HighDigitsec is
+			when "0000" => MSD_7SEGsec <= "0000001";
+			when "0001" => MSD_7SEGsec <= "1001111";
+			when "0010" => MSD_7SEGsec <= "0010010";
+			when "0011" => MSD_7SEGsec <= "0000110";
+			when "0100" => MSD_7SEGsec <= "1001100";
+			when "0101" => MSD_7SEGsec <= "0100100";
+			when "0110" => MSD_7SEGsec <= "0100000";
+			when "0111" => MSD_7SEGsec <= "0001111";
+			when "1000" => MSD_7SEGsec <= "0000000";
+			when "1001" => MSD_7SEGsec <= "0000100";
+			when others => MSD_7SEGsec <= "1111111";
+		end case;
+		
+		case LowDigitmin is
+			when "0000" => LSD_7SEGmin <= "0000001";
+			when "0001" => LSD_7SEGmin <= "1001111";
+			when "0010" => LSD_7SEGmin <= "0010010";
+			when "0011" => LSD_7SEGmin<= "0000110";
+			when "0100" => LSD_7SEGmin <= "1001100";
+			when "0101" => LSD_7SEGmin <= "0100100";
+			when "0110" => LSD_7SEGmin<= "0100000";
+			when "0111" => LSD_7SEGmin<= "0001111";
+			when "1000" => LSD_7SEGmin <= "0000000";
+			when "1001" => LSD_7SEGmin <= "0000100";
+			when others => LSD_7SEGmin <= "1111111";
+		end case;
+
+		case HighDigitmin is
+			when "0000" => MSD_7SEGmin <= "0000001";
+			when "0001" => MSD_7SEGmin <= "1001111";
+			when "0010" => MSD_7SEGmin <= "0010010";
+			when "0011" => MSD_7SEGmin <= "0000110";
+			when "0100" => MSD_7SEGmin <= "1001100";
+			when "0101" => MSD_7SEGmin <= "0100100";
+			when "0110" => MSD_7SEGmin <= "0100000";
+			when "0111" => MSD_7SEGmin <= "0001111";
+			when "1000" => MSD_7SEGmin<= "0000000";
+			when "1001" => MSD_7SEGmin <= "0000100";
+			when others => MSD_7SEGmin <= "1111111";
+		end case;
+		
+		case LowDigithr is
+			when "0000" => LSD_7SEGhr <= "0000001";
+			when "0001" => LSD_7SEGhr <= "1001111";
+			when "0010" => LSD_7SEGhr <= "0010010";
+			when "0011" => LSD_7SEGhr <= "0000110";
+			when "0100" => LSD_7SEGhr <= "1001100";
+			when "0101" => LSD_7SEGhr <= "0100100";
+			when "0110" => LSD_7SEGhr <= "0100000";
+			when "0111" => LSD_7SEGhr <= "0001111";
+			when "1000" => LSD_7SEGhr <= "0000000";
+			when "1001" => LSD_7SEGhr <= "0000100";
+			when others => LSD_7SEGhr <= "1111111";
+		end case;
+
+		case HighDigithr is
+			when "0000" => MSD_7SEGhr <= "0000001";
+			when "0001" => MSD_7SEGhr <= "1001111";
+			when "0010" => MSD_7SEGhr <= "0010010";
+			when "0011" => MSD_7SEGhr <= "0000110";
+			when "0100" => MSD_7SEGhr <= "1001100";
+			when "0101" => MSD_7SEGhr <= "0100100";
+			when "0110" => MSD_7SEGhr <= "0100000";
+			when "0111" => MSD_7SEGhr <= "0001111";
+			when "1000" => MSD_7SEGhr <= "0000000";
+			when "1001" => MSD_7SEGhr <= "0000100";
+			when others => MSD_7SEGhr <= "1111111";
+		end case;
+		
+
+	END PROCESS;
+
+end a;
+
+
